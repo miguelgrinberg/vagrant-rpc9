@@ -112,9 +112,18 @@ sed -i "s/lb_vip_address: 127.0.0.1/lb_vip_address: 10.1.0.11/" vars/user_variab
 
 # setup playbooks
 ansible-playbook -e @vars/user_variables.yml playbooks/setup/all-the-setup-things.yml
+if [[ $? -ne 0 ]]; then
+    exit $?
+fi
 
 # infrastructure playbooks
 ansible-playbook -e @vars/user_variables.yml playbooks/infrastructure/all-the-infrastructure-things.yml
+if [[ $? -ne 0 ]]; then
+    exit $?
+fi
 
 # openstack playbooks
 ansible-playbook -e @vars/user_variables.yml playbooks/openstack/all-the-openstack-things.yml
+if [[ $? -ne 0 ]]; then
+    exit $?
+fi
