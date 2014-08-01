@@ -29,8 +29,18 @@ run_playbook playbooks/setup/build-containers.yml
 run_playbook playbooks/setup/restart-containers.yml
 run_playbook playbooks/setup/it-puts-common-bits-on-disk.yml
 
+
+
+GALERA_CONTAINER=`lxc-ls | grep galera`
+if [ -f "/openstack/$GALERA_CONTAINER/galera.cache" ]; then 
+	run_playbook playbooks/infrastructure/galera-config.yml
+	run_playbook playbooks/infrastructure/galera-startup.yml
+else
+	run_playbook playbooks/infrastructure/galera-install.yml
+fi
+
+
 run_playbook playbooks/infrastructure/memcached.yml
-run_playbook playbooks/infrastructure/galera-install.yml
 run_playbook playbooks/infrastructure/rabbit-install.yml
 run_playbook playbooks/infrastructure/rsyslog-install.yml
 run_playbook playbooks/infrastructure/elasticsearch-install.yml
