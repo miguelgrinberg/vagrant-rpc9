@@ -9,13 +9,21 @@ set -e
 set -o pipefail
 set -x
 
-GIT_URL=https://github.com/rcbops/ansible-lxc-rpc.git
-GIT_BRANCH=development
+GIT_URL=https://github.com/johnmarkschofield/ansible-lxc-rpc.git
+GIT_BRANCH=schof_installation_tool
 
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -q -y update-notifier-common
+
+# Do this early because there's an authentication prompt.
+apt-get install -q -y git
+rm -rf /opt/ansible-lxc-rpc
+mkdir -p /opt
+git clone $GIT_URL -b $GIT_BRANCH /opt/ansible-lxc-rpc
+
+
 apt-get autoremove -y
 apt-get dist-upgrade -q -y
 test -e /var/run/reboot-required && shutdown -h now || true
@@ -51,38 +59,12 @@ pvcreate /dev/sdc1
 vgcreate lxc /dev/sdb1
 vgcreate cinder-volumes /dev/sdc1
 
-# Don't think any of this is necessary
-# LXC
-# add-apt-repository -y ppa:ubuntu-lxc/stable
-# apt-get update
-# apt-get install -y lxc python3-lxc lxc-templates liblxc1
 
-# git clone https://github.com/cloudnull/lxc_defiant
-# cp lxc_defiant/lxc-defiant.py /usr/share/lxc/templates/lxc-defiant
-# chmod +x /usr/share/lxc/templates/lxc-defiant
-# cp lxc_defiant/defiant.common.conf /usr/share/lxc/config/defiant.common.conf
-
+# networking
 echo net.ipv4.ip_forward=1 >> /etc/sysctl.conf
 sysctl -w net.ipv4.ip_forward=1
 
-# cat > /etc/lxc/lxc-defiant.conf <<EOF
-# lxc.start.auto = 1
-# lxc.group = onboot
 
-# # Configures the default LXC network
-# lxc.network.type=veth
-# lxc.network.name=eth0
-# lxc.network.link=lxcbr0
-# lxc.network.flags=up
-
-# # Creates a veth pair within the container
-# lxc.network.type = veth
-# lxc.network.link = br-mgmt
-# lxc.network.name = eth1
-# lxc.network.flags = up
-# EOF
-
-# networking
 brctl addbr br-mgmt
 cat << EOF > /etc/network/interfaces.d/eth2.cfg
 auto eth2
@@ -97,16 +79,17 @@ iface br-mgmt inet static
         bridge_maxwait 0
         dns-nameservers 8.8.8.8 8.8.4.4
 EOF
+
+sleep 5
 ifdown eth2
+sleep 5
 ifup eth2
+sleep 5
 ifdown br-mgmt
+sleep 5
 ifup br-mgmt
+sleep 5
 
-
-
-rm -rf /opt/ansible-lxc-rpc
-mkdir -p /opt
-git clone $GIT_URL -b $GIT_BRANCH /opt/ansible-lxc-rpc
 
 pip install --upgrade -r /opt/ansible-lxc-rpc/requirements.txt
 
@@ -156,5 +139,5 @@ find . -name "*.yml" -exec sed -i "s/container_lvm_fssize: 5G/container_lvm_fssi
 sed -i "s/^lb_vip_address:.*/lb_vip_address: 10.1.0.11/" /opt/ansible-lxc-rpc/rpc_deployment/vars/user_variables.yml
 
 
-/bin/bash /vagrant/install_openstack.bash
+/usr/bin/python /opt/ansible-lxc-rpc/tools/install.py --haproxy --galera --rabbit
 
