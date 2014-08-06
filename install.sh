@@ -10,7 +10,7 @@ set -o pipefail
 set -x
 
 GIT_URL=https://github.com/johnmarkschofield/ansible-lxc-rpc.git
-GIT_BRANCH=schof_installation_tool
+GIT_BRANCH=development
 
 
 export DEBIAN_FRONTEND=noninteractive
@@ -43,6 +43,11 @@ apt-get -q -y install emacs24-nox vim tmux
 # Get modern pip
 apt-get -q -y install python-setuptools
 easy_install pip
+
+
+# Required for vhost_net kernel module
+apt-get -q -y install linux-image-extra-`uname -r`
+
 
 
 # Install ansible
@@ -107,7 +112,14 @@ cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
 
 cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
 ---
-cidr: 10.1.0.0/24
+# User defined CIDR used for containers
+mgmt_cidr: 10.1.0.0/24
+
+vmnet_cidr: 172.16.32.0/24
+
+global_overrides:
+  internal_lb_vip_address: 10.1.0.11
+  external_lb_vip_address: 10.1.0.11
 
 infra_hosts:
   infra1:
