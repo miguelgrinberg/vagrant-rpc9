@@ -10,7 +10,7 @@ set -o pipefail
 set -x
 
 GIT_URL=https://github.com/johnmarkschofield/ansible-lxc-rpc.git
-GIT_BRANCH=development
+GIT_BRANCH=non-blocking-io-for-subprocess
 
 
 export DEBIAN_FRONTEND=noninteractive
@@ -48,7 +48,8 @@ easy_install pip
 # Required for vhost_net kernel module
 apt-get -q -y install linux-image-extra-`uname -r`
 
-
+# Shutdown if necessary
+test -f /var/run/reboot-required && shutdown -h now || true
 
 # Install ansible
 pip install ansible==1.6.6
