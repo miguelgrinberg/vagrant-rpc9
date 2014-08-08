@@ -15,10 +15,19 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
     config.vm.provision "shell", inline: $proxyconfig
     config.vm.box_url = "https://cloud-images.ubuntu.com/vagrant/trusty/current/trusty-server-cloudimg-amd64-vagrant-disk1.box"
     config.vm.box = "trusty64"
-    config.vm.hostname = "infra1"
+    config.vm.hostname = "vagrant-infra1"
     config.ssh.forward_agent = true
-    config.vm.network "private_network", ip: "10.0.0.11"
-    config.vm.network "private_network", ip: "10.1.0.11", auto_config: false
+
+    # ext network
+    config.vm.network "private_network", ip: "10.10.10.10", auto_config: false
+
+    # mgmt network
+    config.vm.network "private_network", ip: "10.51.50.10", auto_config: false
+
+    # vmnet network
+    config.vm.network "private_network", ip: "192.168.20.10", auto_config: false
+
+
     config.vm.network "private_network", ip: "10.5.5.16" # required for vagrant-apt-cacher
     config.vm.provider "virtualbox" do |vb|
         vb.customize ["modifyvm", :id, "--memory", "4096"]
