@@ -10,6 +10,7 @@ cd /root
 apt-get update
 apt-get dist-upgrade -y
 apt-get install -y aptitude bridge-utils lxc lvm2 build-essential git python-dev python-pip
+apt-get install -y --reinstall linux-image-3.13.0
 
 # lvm
 parted -s /dev/sdb mktable gpt
@@ -105,46 +106,46 @@ EOF
 cd ansible-lxc-rpc/rpc_deployment/
 find . -name "*.yml" -exec sed -i "s/container_lvm_fssize: 5G/container_lvm_fssize: 2G/g" '{}' \;
 
-exit 0
 run_playbook()
 {
     ATTEMPT=1
     VERBOSE=""
-    while ! ansible-playbook $VERBOSE -e @vars/user_variables.yml playbooks/$1; do 
+    RETRY=""
+    while ! ansible-playbook $VERBOSE -e @vars/user_variables.yml playbooks/$1/$2.yml $RETRY; do 
         if [ $ATTEMPT -ge $RETRIES ]; then
             exit 1
         fi
         ATTEMPT=$((ATTEMPT+1))
         sleep 10
         VERBOSE=-vvv
+        RETRY="--limit @/root/$2.retry"
     done
 }
 
-run_playbook setup/host-setup.yml
-run_playbook setup/build-containers.yml
-run_playbook setup/restart-containers.yml
-run_playbook setup/it-puts-common-bits-on-disk.yml
+run_playbook setup host-setup
+run_playbook setup build-containers
+run_playbook setup restart-containers
+run_playbook setup it-puts-common-bits-on-disk
 
-run_playbook infrastructure/galera-install.yml
-run_playbook infrastructure/memcached-install.yml
-run_playbook infrastructure/rabbit-install.yml
-run_playbook infrastructure/rsyslog-install.yml
-run_playbook infrastructure/elasticsearch-install.yml
-run_playbook infrastructure/logstash-install.yml
-run_playbook infrastructure/kibana-install.yml
-run_playbook infrastructure/rsyslog-config.yml
-run_playbook infrastructure/es2unix-install.yml
-run_playbook infrastructure/haproxy-install.yml
+run_playbook infrastructure galera-install
+run_playbook infrastructure memcached-install
+run_playbook infrastructure rabbit-install
+run_playbook infrastructure rsyslog-install
+run_playbook infrastructure elasticsearch-install
+run_playbook infrastructure logstash-install
+run_playbook infrastructure kibana-install
+run_playbook infrastructure rsyslog-config
+run_playbook infrastructure es2unix-install
+run_playbook infrastructure haproxy-install
 
-run_playbook openstack/utility.yml
-run_playbook openstack/it-puts-openstack-bits-on-disk.yml
-run_playbook openstack/keystone.yml
-run_playbook openstack/keystone-add-all-services.yml
-run_playbook openstack/keystone-add-users.yml
-run_playbook openstack/glance-all.yml
-run_playbook openstack/heat-all.yml
-run_playbook openstack/nova-all.yml
-run_playbook openstack/neutron-all.yml
-run_playbook openstack/neutron-all.yml
-run_playbook openstack/cinder-all.yml
-run_playbook openstack/horizon.yml
+run_playbook openstack utility
+run_playbook openstack it-puts-openstack-bits-on-disk
+run_playbook openstack keystone
+run_playbook openstack keystone-add-all-services
+run_playbook openstack keystone-add-users
+run_playbook openstack glance-all
+run_playbook openstack heat-all
+run_playbook openstack nova-all
+run_playbook openstack neutron-all
+run_playbook openstack cinder-all
+run_playbook openstack horizon
