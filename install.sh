@@ -9,8 +9,7 @@ cd /root
 # base dependencies
 apt-get update
 apt-get dist-upgrade -y
-apt-get install -y aptitude bridge-utils lxc lvm2 build-essential git python-dev python-pip
-apt-get install -y --reinstall linux-image-3.13.0
+apt-get install -q -y linux-image-extra-`uname -r` aptitude bridge-utils lxc lvm2 build-essential git python-dev python-pip
 
 # lvm
 parted -s /dev/sdb mktable gpt
@@ -109,9 +108,10 @@ find . -name "*.yml" -exec sed -i "s/container_lvm_fssize: 5G/container_lvm_fssi
 run_playbook()
 {
     ATTEMPT=1
+    RETRIES=3
     VERBOSE=""
     RETRY=""
-    while ! ansible-playbook $VERBOSE -e @vars/user_variables.yml playbooks/$1/$2.yml $RETRY; do 
+    while ! ansible-playbook $VERBOSE -e @vars/user_variables.yml playbooks/$1/$2.yml $RETRY ; do 
         if [ $ATTEMPT -ge $RETRIES ]; then
             exit 1
         fi
@@ -136,7 +136,7 @@ run_playbook infrastructure logstash-install
 run_playbook infrastructure kibana-install
 run_playbook infrastructure rsyslog-config
 run_playbook infrastructure es2unix-install
-run_playbook infrastructure haproxy-install
+#run_playbook infrastructure haproxy-install
 
 run_playbook openstack utility
 run_playbook openstack it-puts-openstack-bits-on-disk
