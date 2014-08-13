@@ -15,7 +15,7 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
         vb.customize ["modifyvm", :id, "--nicpromisc4", "allow-all"]
 
         unless File.exist?('./sdb.vdi')
-            vb.customize ['createhd', '--filename', './sdb.vdi', '--size', 50 * 1024]
+            vb.customize ['createhd', '--filename', './sdb.vdi', '--size', 150 * 1024]
             vb.customize ['storageattach', :id, '--storagectl', 'SATAController', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', './sdb.vdi']
         end
         unless File.exist?('./sdc.vdi')
@@ -23,4 +23,5 @@ Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
             vb.customize ['storageattach', :id, '--storagectl', 'SATAController', '--port', 2, '--device', 0, '--type', 'hdd', '--medium', './sdc.vdi']
         end
     end
+    #config.vm.provision "shell", path: "install.sh", privileged: true
 end
