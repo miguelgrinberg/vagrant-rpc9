@@ -1,6 +1,6 @@
 #!/bin/bash
 
-if [ `id -u` -ne 0 ]; then
+if [ `id -u` -ne 1000 ]; then
   echo "This script must be run as root."
   exit 1
 fi
@@ -9,70 +9,55 @@ set -e
 set -o pipefail
 set -x
 
-export GIT_URL=https://github.com/rcbops/ansible-lxc-rpc.git
+export GIT_URL=git@github.com:rcbops/ansible-lxc-rpc.git
 export GIT_BRANCH=master
-
-
 export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -q -y update-notifier-common
 
-# Do this early because there's an authentication prompt.
-apt-get install -q -y git
-rm -rf /opt/ansible-lxc-rpc
-mkdir -p /opt
+
+# APT PACKAGES
+sudo apt-get update
+sudo apt-get install -q -y update-notifier-common
+sudo apt-get install -q -y git lvm2 parted bridge-utils git aptitude python-dev emacs24-nox vim tmux python-setuptools linux-image-extra-virtual
+# linux-image-extra is equired for vhost_net kernel module
+sudo apt-get dist-upgrade -q -y
+sudo apt-get autoremove -y
+
+# Reboot if necessary
+test -e /var/run/reboot-required && sudo shutdown -h now || true
+
+# Get modern pip
+sudo easy_install pip
+
+# GIT CLONE
+ssh -o StrictHostKeyChecking=no git@github.com || true
+sudo rm -rf /opt/ansible-lxc-rpc
+sudo mkdir -p /opt
+sudo chown vagrant:vagrant /opt
 git clone $GIT_URL -b $GIT_BRANCH /opt/ansible-lxc-rpc
 
 
-apt-get autoremove -y
-apt-get dist-upgrade -q -y
-test -e /var/run/reboot-required && shutdown -h now || true
-
-# Disk stuff
-apt-get -q -y install lvm2 parted
-
-# Network stuff
-apt-get -q -y install bridge-utils
-
-# Build Requirements
-apt-get -q -y install git aptitude python-dev
-
-# Not-crappy editors + tools
-apt-get -q -y install emacs24-nox vim tmux
-
-# Get modern pip
-apt-get -q -y install python-setuptools
-easy_install pip
-
-
-# Required for vhost_net kernel module
-apt-get -q -y install linux-image-extra-`uname -r`
-
-# Shutdown if necessary
-test -f /var/run/reboot-required && shutdown -h now || true
-
 # Install ansible
-pip install ansible==1.6.6
+sudo pip install ansible==1.6.6
 
 
 # Configure Disks
-parted -s /dev/sdb mktable gpt
-parted -s /dev/sdc mktable gpt
-parted -s /dev/sdb mkpart lvm 0% 100%
-parted -s /dev/sdc mkpart lvm 0% 100%
-pvcreate /dev/sdb1
-pvcreate /dev/sdc1
-vgcreate lxc /dev/sdb1
-vgcreate cinder-volumes /dev/sdc1
+sudo parted -s /dev/sdb mktable gpt
+sudo parted -s /dev/sdc mktable gpt
+sudo parted -s /dev/sdb mkpart lvm 0% 100%
+sudo parted -s /dev/sdc mkpart lvm 0% 100%
+sudo pvcreate /dev/sdb1
+sudo pvcreate /dev/sdc1
+sudo vgcreate lxc /dev/sdb1
+sudo vgcreate cinder-volumes /dev/sdc1
 
 
 # networking
-echo net.ipv4.ip_forward=1 >> /etc/sysctl.conf
-sysctl -w net.ipv4.ip_forward=1
+echo net.ipv4.ip_forward=1 >> sudo tee /etc/sysctl.conf
+sudo sysctl -w net.ipv4.ip_forward=1
 
 
 
-cat << EOF > /etc/network/interfaces.d/eth1.cfg
+cat << EOF | sudo tee /etc/network/interfaces.d/eth1.cfg
 auto eth1
 iface eth1 inet manual
 auto br-ext
@@ -85,10 +70,10 @@ iface br-ext inet static
         bridge_maxwait 0
         dns-nameservers 8.8.8.8 8.8.4.4
 EOF
-brctl addbr br-ext
+sudo brctl addbr br-ext
 
 
-cat << EOF > /etc/network/interfaces.d/eth2.cfg
+cat << EOF | sudo tee /etc/network/interfaces.d/eth2.cfg
 auto eth2
 iface eth2 inet manual
 auto br-mgmt
@@ -101,10 +86,10 @@ iface br-mgmt inet static
         bridge_maxwait 0
         dns-nameservers 8.8.8.8 8.8.4.4
 EOF
-brctl addbr br-mgmt
+sudo brctl addbr br-mgmt
 
 
-cat << EOF > /etc/network/interfaces.d/eth3.cfg
+cat << EOF | sudo tee /etc/network/interfaces.d/eth3.cfg
 auto eth3
 iface eth3 inet manual
 auto br-mgmt
@@ -117,42 +102,38 @@ iface br-mgmt inet static
         bridge_maxwait 0
         dns-nameservers 8.8.8.8 8.8.4.4
 EOF
-brctl addbr br-vmnet
+sudo brctl addbr br-vmnet
 
 
 
 sleep 5
-ifdown eth1
-ifdown eth2
-ifdown eth3
+sudo ifdown eth1
+sudo ifdown eth2
+sudo ifdown eth3
 sleep 5
-ifup eth1
-ifup eth2
-ifup eth3
+sudo ifup eth1
+sudo ifup eth2
+sudo ifup eth3
 sleep 5
-ifdown br-mgmt
-ifdown br-ext
-ifdown br-vmnet
+sudo ifdown br-mgmt
+sudo ifdown br-ext
+sudo ifdown br-vmnet
 sleep 5
-ifup br-mgmt
-ifup br-vmnet
-ifup br-ext
+sudo ifup br-mgmt
+sudo ifup br-vmnet
+sudo ifup br-ext
 
-pip install --upgrade -r /opt/ansible-lxc-rpc/requirements.txt
+sudo pip install --upgrade -r /opt/ansible-lxc-rpc/requirements.txt
 
-cp -R /opt/ansible-lxc-rpc/etc/rpc_deploy /etc/rpc_deploy
+sudo cp -R /opt/ansible-lxc-rpc/etc/rpc_deploy /etc/rpc_deploy
 
-rm -f /root/.ssh/id_rsa
-rm -rf /root/.ssh/id_rsa.pub
-ssh-keygen -t rsa -f /root/.ssh/id_rsa -N ''
-cat ~/.ssh/id_rsa.pub >> ~/.ssh/authorized_keys
-
-# Not necessary because d34dh0r53 made these parameters auto-configuring
-# sed -i 's/^elasticsearch_heap:.*/elasticsearch_heap: 1g/g' /opt/ansible-lxc-rpc/rpc_deployment/inventory/group_vars/elasticsearch.yml
-# sed -i 's/^logstash_heap:.*/logstash_heap: 1g/g' /opt/ansible-lxc-rpc/rpc_deployment/inventory/group_vars/logstash.yml
+sudo rm -f /root/.ssh/id_rsa
+sudo rm -rf /root/.ssh/id_rsa.pub
+sudo ssh-keygen -t rsa -f /root/.ssh/id_rsa -N ''
+sudo cat /root/.ssh/id_rsa.pub | sudo tee /root/.ssh/authorized_keys
 
 
-cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
+cat << EOF | sudo tee /etc/rpc_deploy/rpc_user_config.yml
 ---
 # User defined CIDR used for containers
 mgmt_cidr: 10.51.50.0/24
@@ -188,10 +169,11 @@ haproxy_hosts:
     ip: 10.51.50.10
 EOF
 
+
 cd /opt/ansible-lxc-rpc/rpc_deployment/
 find . -name "*.yml" -exec sed -i "s/container_lvm_fssize: 5G/container_lvm_fssize: 2G/g" '{}' \;
 sed -i "s/^lb_vip_address:.*/lb_vip_address: 10.51.50.10/" /opt/ansible-lxc-rpc/rpc_deployment/vars/user_variables.yml
 
 
-/usr/bin/python /opt/ansible-lxc-rpc/tools/install.py --haproxy --galera --rabbit
+sudo /usr/bin/python /opt/ansible-lxc-rpc/tools/install.py --haproxy --galera --rabbit
 
