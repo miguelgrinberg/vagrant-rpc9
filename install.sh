@@ -9,8 +9,8 @@ set -e
 set -o pipefail
 set -x
 
-GIT_URL=https://github.com/johnmarkschofield/ansible-lxc-rpc.git
-GIT_BRANCH=non-blocking-io-for-subprocess
+export GIT_URL=https://github.com/rcbops/ansible-lxc-rpc.git
+export GIT_BRANCH=master
 
 
 export DEBIAN_FRONTEND=noninteractive
