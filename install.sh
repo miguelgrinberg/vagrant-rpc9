@@ -105,6 +105,26 @@ vmnet_cidr: $BR_VMNET_CIDR
 global_overrides:
   internal_lb_vip_address: $BR_MGMT_IP
   external_lb_vip_address: $BR_EXT_IP
+  tunnel_bridge: "br-vmnet"
+  container_bridge: "br-mgmt"
+  neutron_provider_networks:
+    - network:
+        container_bridge: "br-vmnet"
+        container_interface: "eth3"
+        type: "vxlan"
+        range: "1:1000"
+        net_name: "vmnet"
+    - network:
+        container_bridge: "br-ext"
+        container_interface: "eth4"
+        type: "flat"
+        net_name: "extnet"
+    - network:
+        container_bridge: "br-ext"
+        container_interface: "eth4"
+        type: "vlan"
+        range: "1:1000"
+        net_name: "extnet"
 
 infra_hosts:
   infra1:
@@ -150,24 +170,23 @@ run_playbook()
     done
 }
 
-run_playbook setup host-setup
+run_playbook setup setup-common
 run_playbook setup build-containers
 run_playbook setup restart-containers
-run_playbook setup it-puts-common-bits-on-disk
+run_playbook setup host-common
 
-run_playbook infrastructure galera-install
 run_playbook infrastructure memcached-install
+run_playbook infrastructure galera-install
 run_playbook infrastructure rabbit-install
 run_playbook infrastructure rsyslog-install
 run_playbook infrastructure elasticsearch-install
 run_playbook infrastructure logstash-install
 run_playbook infrastructure kibana-install
-run_playbook infrastructure rsyslog-config
 run_playbook infrastructure es2unix-install
+run_playbook infrastructure rsyslog-config
 run_playbook infrastructure haproxy-install
 
-run_playbook openstack utility
-run_playbook openstack it-puts-openstack-bits-on-disk
+run_playbook openstack openstack-common
 run_playbook openstack keystone
 run_playbook openstack keystone-add-all-services
 run_playbook openstack keystone-add-users
@@ -177,3 +196,4 @@ run_playbook openstack nova-all
 run_playbook openstack neutron-all
 run_playbook openstack cinder-all
 run_playbook openstack horizon
+run_playbook openstack utility
