@@ -1,7 +1,7 @@
 #!/bin/bash
 
 if [ `id -u` -ne 1000 ]; then
-  echo "This script must be run as root."
+  echo "This script must be run as the vagrant user."
   exit 1
 fi
 
@@ -147,7 +147,28 @@ used_ips:
 global_overrides:
   internal_lb_vip_address: 10.51.50.10
   external_lb_vip_address: 10.51.50.10
-
+  tunnel_bridge: "br-vmnet"
+  container_bridge: "br-mgmt"
+  # Define your neutron netowrks.
+  neutron_provider_networks:
+    - network:
+        container_bridge: "br-vmnet"
+        container_interface: "eth2"
+        type: "vxlan"
+        range: "1:1000"
+        net_name: "vmnet"
+    - network:
+        container_bridge: "br-ext"
+        container_interface: "eth3"
+        type: "flat"
+        net_name: "extnet"
+    - network:
+        container_bridge: "br-ext"
+        container_interface: "eth3"
+        type: "vlan"
+        range: "1:1"
+        net_name: "extnet"
+        
 infra_hosts:
   infra1:
     ip: 10.51.50.10
@@ -179,5 +200,5 @@ find . -name "*.yml" -exec sed -i "s/container_lvm_fssize: 5G/container_lvm_fssi
 sed -i "s/^lb_vip_address:.*/lb_vip_address: 10.51.50.10/" /opt/ansible-lxc-rpc/rpc_deployment/vars/user_variables.yml
 
 
-sudo /usr/bin/python /opt/ansible-lxc-rpc/tools/install.py --haproxy --galera --rabbit
+sudo su -l -c "/usr/bin/python /opt/ansible-lxc-rpc/tools/install.py --haproxy --galera --rabbit"
 
