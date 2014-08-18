@@ -140,6 +140,10 @@ mgmt_cidr: 10.51.50.0/24
 
 vmnet_cidr: 192.168.20.0/24
 
+used_ips:
+  - 10.51.50.1
+  - 192.168.20.1
+
 global_overrides:
   internal_lb_vip_address: 10.51.50.10
   external_lb_vip_address: 10.51.50.10
