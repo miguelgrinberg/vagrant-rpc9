@@ -3,28 +3,28 @@
 # configuration section (cloud server)
 LVM_LXC_DEV=/dev/xvde
 LVM_CINDER_DEV=/dev/xvdb
-BR_MGMT_ETH=eth2
-BR_MGMT_IP=192.168.21.1
-BR_MGMT_CIDR=192.168.21.128/25
-BR_VMNET_ETH=eth3
-BR_VMNET_IP=192.168.22.2
-BR_VMNET_CIDR=192.168.22.128/25
-BR_EXT_ETH=eth4
-BR_EXT_IP=192.168.25.1
-BR_EXT_CIDR=192.168.25.128/25
+MGMT_ETH=eth2
+MGMT_IP=192.168.21.1
+MGMT_CIDR=192.168.21.0/24
+TUNNEL_ETH=eth3
+TUNNEL_IP=192.168.22.1
+TUNNEL_CIDR=192.168.22.0/24
+EXT_ETH=eth4
+EXT_IP=192.168.25.1
+EXT_CIDR=192.168.25.0/24
 
 # configuration section (vagrant)
 #LVM_LXC_DEV=/dev/sdb
 #LVM_CINDER_DEV=/dev/sdc
-#BR_MGMT_ETH=eth1
-#BR_MGMT_IP=10.0.0.11
-#BR_MGMT_CIDR=10.0.0.128/25
-#BR_VMNET_ETH=eth2
-#BR_VMNET_IP=10.1.0.11
-#BR_VMNET_CIDR=10.1.0.128/25
-#BR_EXT_ETH=eth3
-#BR_EXT_IP=10.2.0.11
-#BR_EXT_CIDR=10.2.0.128/25
+#MGMT_ETH=eth1
+#MGMT_IP=10.0.0.11
+#MGMT_CIDR=10.0.0.128/25
+#TUNNEL_ETH=eth2
+#TUNNEL_IP=10.1.0.11
+#TUNNEL_CIDR=10.1.0.128/25
+#EXT_ETH=eth3
+#EXT_IP=10.2.0.11
+#EXT_CIDR=10.2.0.128/25
 
 # this script must run as root
 set -e
@@ -36,8 +36,9 @@ cd /root
 
 # base dependencies
 apt-get update
-apt-get dist-upgrade -y
-apt-get install -q -y linux-image-extra-`uname -r` aptitude bridge-utils lxc lvm2 build-essential git python-dev python-pip
+DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade
+KERNEL=`uname -r`
+apt-get -qy install linux-image-extra-$KERNEL aptitude bridge-utils lxc lvm2 build-essential git python-dev python-pip
 
 # lvm
 parted -s $LVM_LXC_DEV mktable gpt
@@ -54,37 +55,37 @@ echo net.ipv4.ip_forward=1 >> /etc/sysctl.conf
 sysctl -w net.ipv4.ip_forward=1
 
 cat << EOF >> /etc/network/interfaces
-# br-mgmt on $BR_MGMT_ETH
-auto $BR_MGMT_ETH
-iface $BR_MGMT_ETH inet manual
+# br-mgmt on $MGMT_ETH
+auto $MGMT_ETH
+iface $MGMT_ETH inet manual
 auto br-mgmt
 iface br-mgmt inet static
-        address $BR_MGMT_IP
+        address $MGMT_IP
         netmask 255.255.255.0
-        bridge_ports $BR_MGMT_ETH
+        bridge_ports $MGMT_ETH
 
-# br-vmnet on $BR_VMNET_ETH
-auto $BR_VMNET_ETH
-iface $BR_VMNET_ETH inet manual
+# br-vmnet on $TUNNEL_ETH
+auto $TUNNEL_ETH
+iface $TUNNEL_ETH inet manual
 auto br-vmnet
 iface br-vmnet inet static
-        address $BR_VMNET_IP
+        address $TUNNEL_IP
         netmask 255.255.255.0
-        bridge_ports $BR_VMNET_ETH
+        bridge_ports $TUNNEL_ETH
 
-# br-ext on $BR_EXT_ETH
-auto $BR_EXT_ETH
-iface $BR_EXT_ETH inet manual
+# br-ext on $EXT_ETH
+auto $EXT_ETH
+iface $EXT_ETH inet manual
 auto br-ext
 iface br-ext inet static
-        address $BR_EXT_IP
+        address $EXT_IP
         netmask 255.255.255.0
-        bridge_ports $BR_EXT_ETH
+        bridge_ports $EXT_ETH
         dns-nameservers 8.8.8.8 8.8.4.4
 EOF
-ifup $BR_MGMT_ETH
-ifup $BR_VMNET_ETH
-ifup $BR_EXT_ETH
+ifup $MGMT_ETH
+ifup $TUNNEL_ETH
+ifup $EXT_ETH
 brctl addbr br-mgmt
 brctl addbr br-vmnet
 brctl addbr br-ext
@@ -99,59 +100,66 @@ pip install -r ansible-lxc-rpc/requirements.txt
 cp -R ansible-lxc-rpc/etc/rpc_deploy/ /etc/rpc_deploy
 cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
 ---
-mgmt_cidr: $BR_MGMT_CIDR
-vmnet_cidr: $BR_VMNET_CIDR
-
+mgmt_cidr: $MGMT_CIDR
+tunnel_cidr: $TUNNEL_CIDR
+storage_cidr: $TUNNEL_CIDR
 global_overrides:
-  internal_lb_vip_address: $BR_MGMT_IP
-  external_lb_vip_address: $BR_EXT_IP
+  internal_lb_vip_address: $MGMT_IP
+  external_lb_vip_address: $EXT_IP
   tunnel_bridge: "br-vmnet"
   container_bridge: "br-mgmt"
-  neutron_provider_networks:
+  provider_networks:
     - network:
+        group_binds:
+          - neutron_linuxbridge_agent
         container_bridge: "br-vmnet"
-        container_interface: "eth3"
+        container_interface: "$TUNNEL_ETH"
         type: "vxlan"
         range: "1:1000"
         net_name: "vmnet"
     - network:
+        group_binds:
+          - neutron_linuxbridge_agent
         container_bridge: "br-ext"
-        container_interface: "eth4"
+        container_interface: "$EXT_ETH"
         type: "flat"
         net_name: "extnet"
     - network:
+        group_binds:
+          - neutron_linuxbridge_agent
         container_bridge: "br-ext"
-        container_interface: "eth4"
+        container_interface: "$EXT_ETH"
         type: "vlan"
-        range: "1:1000"
+        range: "1:1"
         net_name: "extnet"
+  lb_name: "lb"
 
 infra_hosts:
   infra1:
-    ip: $BR_MGMT_IP
+    ip: $MGMT_IP
 
 compute_hosts:
   infra1:
-    ip: $BR_MGMT_IP
+    ip: $MGMT_IP
 
 storage_hosts:
   infra1:
-    ip: $BR_MGMT_IP
+    ip: $MGMT_IP
 
 log_hosts:
   infra1:
-    ip: $BR_MGMT_IP
+    ip: $MGMT_IP
 
 network_hosts:
   infra1:
-    ip: $BR_MGMT_IP
+    ip: $MGMT_IP
 
 haproxy_hosts:
   infra1:
-    ip: $BR_MGMT_IP
+    ip: $MGMT_IP
 EOF
 cd ansible-lxc-rpc/rpc_deployment/
-#find . -name "*.yml" -exec sed -i "s/container_lvm_fssize: 5G/container_lvm_fssize: 2G/g" '{}' \;
+sed -i "s/^required_kernel:.*\$/required_kernel: $KERNEL/" inventory/group_vars/all.yml
 
 run_playbook()
 {
@@ -159,7 +167,7 @@ run_playbook()
     RETRIES=3
     VERBOSE=""
     RETRY=""
-    while ! ansible-playbook $VERBOSE -e @vars/user_variables.yml playbooks/$1/$2.yml $RETRY ; do 
+    while ! ansible-playbook $VERBOSE -e @/etc/rpc_deploy/user_variables.yml playbooks/$1/$2.yml $RETRY ; do 
         if [ $ATTEMPT -ge $RETRIES ]; then
             exit 1
         fi
