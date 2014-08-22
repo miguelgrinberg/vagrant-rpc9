@@ -1,60 +1,52 @@
 #!/bin/bash
 
-# configuration section (cloud server)
-LVM_LXC_DEV=/dev/xvde
-LVM_CINDER_DEV=/dev/xvdb
-MGMT_ETH=eth2
-MGMT_IP=192.168.21.1
-MGMT_CIDR=192.168.21.0/24
-TUNNEL_ETH=eth3
-TUNNEL_IP=192.168.22.1
-TUNNEL_CIDR=192.168.22.0/24
-EXT_ETH=eth4
-EXT_IP=192.168.25.1
-EXT_CIDR=192.168.25.0/24
+# All-In-One RPC9 installer script
+# Example for cloud server:
+# $ ./install.sh -m eth2,192.168.21.1,192.168.21.0/24 -t eth3,192.168.22.2,192.168.22.0/24 -e eth4,192.168.25.1,192.168.25.0/24 --lxc xvde --cinder xvdb all
+#
+# Example for vagrant:
+# ./install.sh -m eth1,10.0.0.11,10.0.0.0/24 -t eth2,10.1.0.11,10.1.0.0/24 -e eth3,10.2.0.11,10.2.0.0/24 --lxc xvde --cinder xvdb all
 
-# configuration section (vagrant)
-#LVM_LXC_DEV=/dev/sdb
-#LVM_CINDER_DEV=/dev/sdc
-#MGMT_ETH=eth1
-#MGMT_IP=10.0.0.11
-#MGMT_CIDR=10.0.0.128/25
-#TUNNEL_ETH=eth2
-#TUNNEL_IP=10.1.0.11
-#TUNNEL_CIDR=10.1.0.128/25
-#EXT_ETH=eth3
-#EXT_IP=10.2.0.11
-#EXT_CIDR=10.2.0.128/25
+check_root()
+{
+    set -e
+    if [ `id -u` -ne 0 ]; then
+        echo "This script must be run as root."
+        exit 1
+    fi
+    cd /root
+}
 
-# this script must run as root
-set -e
-if [ `id -u` -ne 0 ]; then
-  echo "This script must be run as root."
-    exit 1
-fi
-cd /root
+do_base()
+{
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade
+    KERNEL=`uname -r`
+    apt-get -qy install linux-image-extra-$KERNEL aptitude bridge-utils lxc lvm2 build-essential git python-dev python-pip
+}
 
-# base dependencies
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" dist-upgrade
-KERNEL=`uname -r`
-apt-get -qy install linux-image-extra-$KERNEL aptitude bridge-utils lxc lvm2 build-essential git python-dev python-pip
+do_lvm()
+{
+    if [[ $LVM_LXC_DEV != "" ]]; then
+        parted -s /dev/$LVM_LXC_DEV mktable gpt
+        parted -s /dev/$LVM_LXC_DEV mkpart lvm 0% 100%
+        pvcreate -ff -y /dev/${LVM_LXC_DEV}1
+        vgcreate lxc /dev/${LVM_LXC_DEV}1
+    fi
+    if [[ $LVM_CINDER_DEV != "" ]]; then
+        parted -s /dev/$LVM_CINDER_DEV mktable gpt
+        parted -s /dev/$LVM_CINDER_DEV mkpart lvm 0% 100%
+        pvcreate -ff -y /dev/${LVM_CINDER_DEV}1
+        vgcreate cinder-volumes /dev/${LVM_CINDER_DEV}1
+    fi
+}
 
-# lvm
-parted -s $LVM_LXC_DEV mktable gpt
-parted -s $LVM_CINDER_DEV mktable gpt
-parted -s $LVM_LXC_DEV mkpart lvm 0% 100%
-parted -s $LVM_CINDER_DEV mkpart lvm 0% 100%
-pvcreate -ff -y ${LVM_LXC_DEV}1
-pvcreate -ff -y ${LVM_CINDER_DEV}1
-vgcreate lxc ${LVM_LXC_DEV}1
-vgcreate cinder-volumes ${LVM_CINDER_DEV}1
+do_net()
+{
+    echo net.ipv4.ip_forward=1 >> /etc/sysctl.conf
+    sysctl -w net.ipv4.ip_forward=1
 
-# networking
-echo net.ipv4.ip_forward=1 >> /etc/sysctl.conf
-sysctl -w net.ipv4.ip_forward=1
-
-cat << EOF >> /etc/network/interfaces
+    cat << EOF >> /etc/network/interfaces
 # br-mgmt on $MGMT_ETH
 auto $MGMT_ETH
 iface $MGMT_ETH inet manual
@@ -83,22 +75,27 @@ iface br-ext inet static
         bridge_ports $EXT_ETH
         dns-nameservers 8.8.8.8 8.8.4.4
 EOF
-ifup $MGMT_ETH
-ifup $TUNNEL_ETH
-ifup $EXT_ETH
-brctl addbr br-mgmt
-brctl addbr br-vmnet
-brctl addbr br-ext
+    ifup $MGMT_ETH
+    ifup $TUNNEL_ETH
+    ifup $EXT_ETH
+    brctl addbr br-mgmt
+    brctl addbr br-vmnet
+    brctl addbr br-ext
+}
 
-# ssh keys
-ssh-keygen -f /root/.ssh/id_rsa -N ""
-cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+do_ssh()
+{
+    ssh-keygen -f /root/.ssh/id_rsa -N ""
+    cat /root/.ssh/id_rsa.pub >> /root/.ssh/authorized_keys
+}
 
-# ansible playbooks setup
-git clone https://github.com/rcbops/ansible-lxc-rpc.git
-pip install -r ansible-lxc-rpc/requirements.txt
-cp -R ansible-lxc-rpc/etc/rpc_deploy/ /etc/rpc_deploy
-cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
+do_ansible()
+{
+    git clone https://github.com/rcbops/ansible-lxc-rpc.git
+    pip install -r ansible-lxc-rpc/requirements.txt
+    cp -R ansible-lxc-rpc/etc/rpc_deploy/ /etc/rpc_deploy
+    ansible-lxc-rpc/scripts/pw-token-gen.py --file /etc/rpc_deploy/user_variables.yml
+    cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
 ---
 mgmt_cidr: $MGMT_CIDR
 tunnel_cidr: $TUNNEL_CIDR
@@ -158,8 +155,9 @@ haproxy_hosts:
   infra1:
     ip: $MGMT_IP
 EOF
-cd ansible-lxc-rpc/rpc_deployment/
-sed -i "s/^required_kernel:.*\$/required_kernel: $KERNEL/" inventory/group_vars/all.yml
+    cd ansible-lxc-rpc/rpc_deployment/
+    sed -i "s/^required_kernel:.*\$/required_kernel: $KERNEL/" inventory/group_vars/all.yml
+}
 
 run_playbook()
 {
@@ -167,6 +165,7 @@ run_playbook()
     RETRIES=3
     VERBOSE=""
     RETRY=""
+    cd ~/ansible-lxc-rpc/rpc_deployment
     while ! ansible-playbook $VERBOSE -e @/etc/rpc_deploy/user_variables.yml playbooks/$1/$2.yml $RETRY ; do 
         if [ $ATTEMPT -ge $RETRIES ]; then
             exit 1
@@ -178,30 +177,204 @@ run_playbook()
     done
 }
 
-run_playbook setup setup-common
-run_playbook setup build-containers
-run_playbook setup restart-containers
-run_playbook setup host-common
+do_playbooks()
+{
+    run_playbook setup setup-common
+    run_playbook setup build-containers
+    run_playbook setup restart-containers
+    run_playbook setup host-common
 
-run_playbook infrastructure memcached-install
-run_playbook infrastructure galera-install
-run_playbook infrastructure rabbit-install
-run_playbook infrastructure rsyslog-install
-run_playbook infrastructure elasticsearch-install
-run_playbook infrastructure logstash-install
-run_playbook infrastructure kibana-install
-run_playbook infrastructure es2unix-install
-run_playbook infrastructure rsyslog-config
-run_playbook infrastructure haproxy-install
+    run_playbook infrastructure memcached-install
+    if [[ $SKIP_GALERA == "" ]]; then
+        run_playbook infrastructure galera-install
+    fi
+    run_playbook infrastructure rabbit-install
+    if [[ $SKIP_LOGGING == "" ]]; then
+        run_playbook infrastructure rsyslog-install
+        run_playbook infrastructure elasticsearch-install
+        run_playbook infrastructure logstash-install
+        run_playbook infrastructure kibana-install
+        run_playbook infrastructure es2unix-install
+        run_playbook infrastructure rsyslog-config
+    fi
+    if [[ $SKIP_HAPROXY == "" ]]; then
+        run_playbook infrastructure haproxy-install
+    fi
 
-run_playbook openstack openstack-common
-run_playbook openstack keystone
-run_playbook openstack keystone-add-all-services
-run_playbook openstack keystone-add-users
-run_playbook openstack glance-all
-run_playbook openstack heat-all
-run_playbook openstack nova-all
-run_playbook openstack neutron-all
-run_playbook openstack cinder-all
-run_playbook openstack horizon
-run_playbook openstack utility
+    run_playbook openstack openstack-common
+    run_playbook openstack keystone
+    run_playbook openstack keystone-add-all-services
+    run_playbook openstack keystone-add-users
+    run_playbook openstack glance-all
+    run_playbook openstack heat-all
+    run_playbook openstack nova-all
+    run_playbook openstack neutron-all
+    run_playbook openstack cinder-all
+    run_playbook openstack horizon
+    run_playbook openstack utility
+}
+
+usage()
+{
+    echo "Usage: install.sh [options] module ..."
+    echo "Options:"
+    echo "  --mgmt(-m):   management network interface, IP address and CIDR (e.g. eth3,192.168.22.1,192.168.22.0/24)"
+    echo "  --tunnel(-t)  VM tunneling network interface, IP address and CIDR"
+    echo "  --ext(-e)     external network interface, IP address and CIDR"
+    echo "  --lxc(-l)     LVM device for LXC containers (e.g. xvde, do not define to disable LVM for containers)"
+    echo "  --cinder(-c)  LVM device for cinder storage (e.g. xvdb)"
+    echo "  --no-galera   Skip the galera playbook (needed for repeat installs)"
+    echo "  --no-log      Skip the logging playbooks (useful for resource constrained hosts)"
+    echo "  --no-haproxy  Skip the haproxy playbook"
+    echo "Modules:"
+    echo "  base       Install base packages"
+    echo "  lvm        Configure LVM volumes"
+    echo "  net        Configure networking"
+    echo "  ssh        Install a SSH private key"
+    echo "  ansible    Checkout and configure the ansible repository"
+    echo "  playbooks  Run the ansible playbooks"
+    echo "  all        Do all of the above"
+    exit 1
+}
+
+while true; do
+    if [[ ${1:0:1} != "-" ]]; then
+        break
+    fi
+    case $1 in
+        --help|-h)
+            usage
+            ;;
+        --mgmt|-m)
+            MGMT_ETH=$(echo $2 | cut -f1 -d,)
+            MGMT_IP=$(echo $2 | cut -f2 -d,)
+            MGMT_CIDR=$(echo $2 | cut -f3 -d,)
+            shift
+            ;;
+        --tunnel|-t)
+            TUNNEL_ETH=$(echo $2 | cut -f1 -d,)
+            TUNNEL_IP=$(echo $2 | cut -f2 -d,)
+            TUNNEL_CIDR=$(echo $2 | cut -f3 -d,)
+            shift
+            ;;
+        --ext|-e)
+            EXT_ETH=$(echo $2 | cut -f1 -d,)
+            EXT_IP=$(echo $2 | cut -f2 -d,)
+            EXT_CIDR=$(echo $2 | cut -f3 -d,)
+            shift
+            ;;
+        --lxc|-l)
+            LVM_LXC_DEV=$2
+            shift
+            ;;
+        --cinder|-c)
+            LVM_CINDER_DEV=$2
+            shift
+            ;;
+        --no-galera)
+            SKIP_GALERA=1
+            ;;
+        --no-log)
+            SKIP_LOGGING=1
+            ;;
+        --no-haproxy)
+            SKIP_HAPROXY=1
+            ;;
+        *)
+            echo "Invalid option: $1" >&2
+            usage
+            ;;
+    esac
+    shift
+done
+MODULES=$1
+if [[ $MODULES == "" ]] || [[ $MODULES == "all" ]]; then
+    MODULES="base lvm net ssh ansible playbooks"
+fi
+
+if [[ $MGMT_ETH == "" ]] || [[ $MGMT_ETH == "" ]] || [[ $MGMT_CIDR == "" ]]; then
+    echo "Error: management network is not configured" >&2
+    exit 1
+fi
+if [[ $TUNNEL_ETH == "" ]] || [[ $TUNNEL_ETH == "" ]] || [[ $TUNNEL_CIDR == "" ]]; then
+    echo "Error: tunnel network is not configured" >&2
+    exit 1
+fi
+if [[ $EXT_ETH == "" ]] || [[ $EXT_ETH == "" ]] || [[ $EXT_CIDR == "" ]]; then
+    echo "Error: external network is not configured" >&2
+    exit 1
+fi
+
+echo "Networking setup:"
+echo "  mgmt:   $MGMT_ETH at $MGMT_IP ($MGMT_CIDR)"
+echo "  tunnel: $TUNNEL_ETH at $TUNNEL_IP ($TUNNEL_CIDR)"
+echo "  ext:    $EXT_ETH at $EXT_IP ($EXT_CIDR)"
+echo " "
+echo "LVM volumes:"
+if [[ $LVM_LXC_DEV == "" ]]; then
+    echo "  lxc:    Not used"
+else
+    echo "  lxc: /dev/$LVM_LXC_DEV"
+fi
+if [[ $LVM_CINDER_DEV == "" ]]; then
+    echo "  cinder: Not used"
+else
+    echo "  cinder: /dev/$LVM_CINDER_DEV"
+fi
+echo " "
+echo "Installing: $MODULES"
+if [[ $SKIP_LOGGING != "" ]]; then
+    echo "Logging disabled"
+fi
+if [[ $SKIP_HAPROXY != "" ]]; then
+    echo "haproxy disabled"
+fi
+echo " "
+read -p "Press Enter to begin..."
+
+KERNEL=`uname -r`
+check_root
+for MODULE in $MODULES; do
+    case $MODULE in
+        base)
+            do_base
+            ;;
+        lvm)
+            do_lvm
+            ;;
+        net)
+            do_net
+            ;;
+        ssh)
+            do_ssh
+            ;;
+        ansible)
+            do_ansible
+            ;;
+        playbooks)
+            do_playbooks
+            ;;
+        *)
+            echo Unknown module $MODULE >&2
+            exit 1
+    esac
+done
+
+# cheat sheet
+
+# neutron net-create public --router:external True --provider:network_type flat --provider:physical_network --shared extnet
+# neutron subnet-create --name public-subnet --gateway 192.168.25.1 --disable-dhcp public 192.168.25.0/24
+
+# neutron net-create test-vxlan --provider:network_type vxlan --provider:segmentation_id 1 --shared
+# neutron subnet-create --name test-vxlan-subnet --gateway 10.0.0.1 --disable-dhcp test-vxlan 10.0.0.0/24
+
+# neutron net-create test-vlan --provider:network_type vlan --provider:physical_network extnet --provider:segmentation_id 1 --shared
+# neutron subnet-create --name test-vlan-subnet --gateway 10.1.0.1 --disable-dhcp test-vlan 10.1.0.0/24
+
+# neutron router-create router
+# neutron router-gateway-set router public
+# neutron router-interface-add router test-vxlan-subnet
+
+# wget http://cdn.download.cirros-cloud.net/0.3.2/cirros-0.3.2-x86_64-disk.img
+# glance image-create --name "CirrOS 0.3.2" --disk-format qcow2 --container-format bare --is-public true < cirros-0.3.2-x86_64-disk.img
+
