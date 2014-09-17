@@ -97,35 +97,49 @@ do_ansible()
     ansible-lxc-rpc/scripts/pw-token-gen.py --file /etc/rpc_deploy/user_variables.yml
     cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
 ---
-mgmt_cidr: $MGMT_CIDR
-tunnel_cidr: $TUNNEL_CIDR
-storage_cidr: $TUNNEL_CIDR
+environment_version: e0955a92a761d5845520a82dcca596af
+
+cidr_networks:
+  container: $MGMT_CIDR
+  snet: $MGMT_CIDR
+  tunnel: $TUNNEL_CIDR
+  storage: $TUNNEL_CIDR
+
 global_overrides:
   internal_lb_vip_address: $MGMT_IP
   external_lb_vip_address: $EXT_IP
   tunnel_bridge: "br-vmnet"
-  container_bridge: "br-mgmt"
+  management_bridge: "br-mgmt"
   provider_networks:
+    - network:
+        group_binds:
+          - all_containers
+          - hosts
+        type: "raw"
+        container_bridge: "br-mgmt"
+        container_interface: "eth1"
+        ip_from_q: "container"
     - network:
         group_binds:
           - neutron_linuxbridge_agent
         container_bridge: "br-vmnet"
-        container_interface: "$TUNNEL_ETH"
+        container_interface: "eth10"
         type: "vxlan"
         range: "1:1000"
-        net_name: "vmnet"
+        net_name: "vxlan"
+        ip_from_q: "tunnel"
     - network:
         group_binds:
           - neutron_linuxbridge_agent
         container_bridge: "br-ext"
-        container_interface: "$EXT_ETH"
+        container_interface: "eth11"
         type: "flat"
         net_name: "extnet"
     - network:
         group_binds:
           - neutron_linuxbridge_agent
         container_bridge: "br-ext"
-        container_interface: "$EXT_ETH"
+        container_interface: "eth11"
         type: "vlan"
         range: "1:1"
         net_name: "extnet"
@@ -182,7 +196,7 @@ do_playbooks()
     run_playbook setup setup-common
     run_playbook setup build-containers
     run_playbook setup restart-containers
-    run_playbook setup host-common
+    run_playbook setup containers-common
 
     run_playbook infrastructure memcached-install
     if [[ $SKIP_GALERA == "" ]]; then
@@ -210,8 +224,9 @@ do_playbooks()
     run_playbook openstack nova-all
     run_playbook openstack neutron-all
     run_playbook openstack cinder-all
-    run_playbook openstack horizon
+    run_playbook openstack horizon-all
     run_playbook openstack utility
+    run_playbook infrastructure rsyslog-config
 }
 
 usage()
