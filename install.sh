@@ -5,7 +5,7 @@
 # $ ./install.sh -m eth2,192.168.21.1,192.168.21.0/24 -t eth3,192.168.22.2,192.168.22.0/24 -e eth4,192.168.25.1,192.168.25.0/24 --lxc xvde --cinder xvdb all
 #
 # Example for vagrant:
-# ./install.sh -m eth1,10.0.0.11,10.0.0.0/24 -t eth2,10.1.0.11,10.1.0.0/24 -e eth3,10.2.0.11,10.2.0.0/24 --lxc xvde --cinder xvdb all
+# ./install.sh -m eth1,10.0.0.11,10.0.0.0/24 -t eth2,10.1.0.11,10.1.0.0/24 -e eth3,10.2.0.11,10.2.0.0/24 --cinder sdb --no-log all
 
 check_root()
 {
@@ -91,7 +91,7 @@ do_ssh()
 
 do_ansible()
 {
-    git clone https://github.com/rcbops/ansible-lxc-rpc.git
+    git clone -b $RPC_BRANCH https://github.com/rcbops/ansible-lxc-rpc.git
     pip install -r ansible-lxc-rpc/requirements.txt
     cp -R ansible-lxc-rpc/etc/rpc_deploy/ /etc/rpc_deploy
     ansible-lxc-rpc/scripts/pw-token-gen.py --file /etc/rpc_deploy/user_variables.yml
@@ -233,6 +233,7 @@ usage()
 {
     echo "Usage: install.sh [options] module ..."
     echo "Options:"
+    echo "  --branch(-b): RPC branch to install (default stable/icehouse)"
     echo "  --mgmt(-m):   management network interface, IP address and CIDR (e.g. eth3,192.168.22.1,192.168.22.0/24)"
     echo "  --tunnel(-t)  VM tunneling network interface, IP address and CIDR"
     echo "  --ext(-e)     external network interface, IP address and CIDR"
@@ -259,6 +260,10 @@ while true; do
     case $1 in
         --help|-h)
             usage
+            ;;
+        --branch|-b)
+            RPC_BRANCH=$2
+            shift
             ;;
         --mgmt|-m)
             MGMT_ETH=$(echo $2 | cut -f1 -d,)
@@ -307,6 +312,10 @@ if [[ $MODULES == "" ]] || [[ $MODULES == "all" ]]; then
     MODULES="base lvm net ssh ansible playbooks"
 fi
 
+if [[ $RPC_BRANCH == "" ]]; then
+    RPC_BRANCH="stable/icehouse"
+fi
+
 if [[ $MGMT_ETH == "" ]] || [[ $MGMT_ETH == "" ]] || [[ $MGMT_CIDR == "" ]]; then
     echo "Error: management network is not configured" >&2
     exit 1
@@ -320,6 +329,8 @@ if [[ $EXT_ETH == "" ]] || [[ $EXT_ETH == "" ]] || [[ $EXT_CIDR == "" ]]; then
     exit 1
 fi
 
+echo "RPC Branch: $RPC_BRANCH"
+echo " "
 echo "Networking setup:"
 echo "  mgmt:   $MGMT_ETH at $MGMT_IP ($MGMT_CIDR)"
 echo "  tunnel: $TUNNEL_ETH at $TUNNEL_IP ($TUNNEL_CIDR)"
