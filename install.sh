@@ -91,13 +91,13 @@ do_ssh()
 
 do_ansible()
 {
-    git clone -b $RPC_BRANCH https://github.com/rcbops/ansible-lxc-rpc.git
+    git clone -b $RPC_BRANCH $RPC_REPO
     pip install -r ansible-lxc-rpc/requirements.txt
     cp -R ansible-lxc-rpc/etc/rpc_deploy/ /etc/rpc_deploy
     ansible-lxc-rpc/scripts/pw-token-gen.py --file /etc/rpc_deploy/user_variables.yml
     cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
 ---
-environment_version: e0955a92a761d5845520a82dcca596af
+environment_version: 3511a43b8e4cc39af4beaaa852b5f917
 
 cidr_networks:
   container: $MGMT_CIDR
@@ -193,10 +193,7 @@ run_playbook()
 
 do_playbooks()
 {
-    run_playbook setup setup-common
-    run_playbook setup build-containers
-    run_playbook setup restart-containers
-    run_playbook setup containers-common
+    run_playbook setup host-setup
 
     run_playbook infrastructure memcached-install
     if [[ $SKIP_GALERA == "" ]]; then
@@ -215,18 +212,7 @@ do_playbooks()
         run_playbook infrastructure haproxy-install
     fi
 
-    run_playbook openstack openstack-common
-    run_playbook openstack keystone
-    run_playbook openstack keystone-add-all-services
-    run_playbook openstack keystone-add-users
-    run_playbook openstack glance-all
-    run_playbook openstack heat-all
-    run_playbook openstack nova-all
-    run_playbook openstack neutron-all
-    run_playbook openstack cinder-all
-    run_playbook openstack horizon-all
-    run_playbook openstack utility
-    run_playbook infrastructure rsyslog-config
+    run_playbook openstack openstack-setup
 }
 
 usage()
@@ -260,6 +246,10 @@ while true; do
     case $1 in
         --help|-h)
             usage
+            ;;
+        --repo|-r)
+            RPC_REPO=$2
+            shift;
             ;;
         --branch|-b)
             RPC_BRANCH=$2
@@ -312,8 +302,12 @@ if [[ $MODULES == "" ]] || [[ $MODULES == "all" ]]; then
     MODULES="base lvm net ssh ansible playbooks"
 fi
 
+if [[ $RPC_REPO == "" ]]; then
+    RPC_REPO="https://github.com/rcbops/ansible-lxc-rpc.git"
+fi
+
 if [[ $RPC_BRANCH == "" ]]; then
-    RPC_BRANCH="stable/icehouse"
+    RPC_BRANCH="master"
 fi
 
 if [[ $MGMT_ETH == "" ]] || [[ $MGMT_ETH == "" ]] || [[ $MGMT_CIDR == "" ]]; then
@@ -329,6 +323,7 @@ if [[ $EXT_ETH == "" ]] || [[ $EXT_ETH == "" ]] || [[ $EXT_CIDR == "" ]]; then
     exit 1
 fi
 
+echo "RPC Repo: $RPC_REPO"
 echo "RPC Branch: $RPC_BRANCH"
 echo " "
 echo "Networking setup:"
