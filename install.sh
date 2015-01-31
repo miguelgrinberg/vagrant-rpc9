@@ -91,10 +91,12 @@ do_ssh()
 
 do_ansible()
 {
+    mkdir -p /opt
+    cd /opt
     git clone -b $RPC_BRANCH $RPC_REPO
-    pip install -r ansible-lxc-rpc/requirements.txt
-    cp -R ansible-lxc-rpc/etc/rpc_deploy/ /etc/rpc_deploy
-    ansible-lxc-rpc/scripts/pw-token-gen.py --file /etc/rpc_deploy/user_variables.yml
+    pip install -r /opt/os-ansible-deployment/requirements.txt
+    cp -R /opt/os-ansible-deployment/etc/rpc_deploy/ /etc/rpc_deploy
+    /opt/os-ansible-deployment/scripts/pw-token-gen.py --file /etc/rpc_deploy/user_variables.yml
     cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
 ---
 environment_version: 3511a43b8e4cc39af4beaaa852b5f917
@@ -108,6 +110,7 @@ cidr_networks:
 global_overrides:
   internal_lb_vip_address: $MGMT_IP
   external_lb_vip_address: $EXT_IP
+  lb_name: "lb"
   tunnel_bridge: "br-vmnet"
   management_bridge: "br-mgmt"
   provider_networks:
@@ -143,7 +146,6 @@ global_overrides:
         type: "vlan"
         range: "1:1"
         net_name: "extnet"
-  lb_name: "lb"
 
 infra_hosts:
   infra1:
@@ -169,7 +171,7 @@ haproxy_hosts:
   infra1:
     ip: $MGMT_IP
 EOF
-    cd ansible-lxc-rpc/rpc_deployment/
+    cd /opt/os-ansible-deployment/rpc_deployment/
     sed -i "s/^required_kernel:.*\$/required_kernel: $KERNEL/" inventory/group_vars/all.yml
 }
 
@@ -179,7 +181,7 @@ run_playbook()
     RETRIES=3
     VERBOSE=""
     RETRY=""
-    cd ~/ansible-lxc-rpc/rpc_deployment
+    cd /opt/os-ansible-deployment/rpc_deployment
     while ! ansible-playbook $VERBOSE -e @/etc/rpc_deploy/user_variables.yml playbooks/$1/$2.yml $RETRY ; do 
         if [ $ATTEMPT -ge $RETRIES ]; then
             exit 1
@@ -303,7 +305,7 @@ if [[ $MODULES == "" ]] || [[ $MODULES == "all" ]]; then
 fi
 
 if [[ $RPC_REPO == "" ]]; then
-    RPC_REPO="https://github.com/rcbops/ansible-lxc-rpc.git"
+    RPC_REPO="https://github.com/stackforge/os-ansible-deployment.git"
 fi
 
 if [[ $RPC_BRANCH == "" ]]; then
