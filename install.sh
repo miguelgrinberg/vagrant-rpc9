@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# All-In-One RPC9 installer script
+# All-In-One RPC installer script
 # Example for cloud server:
 # $ ./install.sh -m eth2,192.168.21.1,192.168.21.0/24 -t eth3,192.168.22.2,192.168.22.0/24 -e eth4,192.168.25.1,192.168.25.0/24 --lxc xvde --cinder xvdb all
 #
@@ -95,57 +95,67 @@ do_ansible()
     cd /opt
     git clone -b $RPC_BRANCH $RPC_REPO
     pip install -r /opt/os-ansible-deployment/requirements.txt
-    cp -R /opt/os-ansible-deployment/etc/rpc_deploy/ /etc/rpc_deploy
-    /opt/os-ansible-deployment/scripts/pw-token-gen.py --file /etc/rpc_deploy/user_variables.yml
-    cat <<EOF >/etc/rpc_deploy/rpc_user_config.yml
+    cd /opt/os-ansible-deployment
+    scripts/bootstrap-ansible.sh
+    cp -R /opt/os-ansible-deployment/etc/openstack_deploy/ /etc/openstack_deploy
+    rm /etc/openstack_deploy/conf.d/swift.yml
+    /opt/os-ansible-deployment/scripts/pw-token-gen.py --file /etc/openstack_deploy/user_secrets.yml
+    /opt/os-ansible-deployment/scripts/pw-token-gen.py --file /etc/openstack_deploy/user_variables.yml
+    cat <<EOF >/etc/openstack_deploy/openstack_user_config.yml
 ---
-environment_version: 3511a43b8e4cc39af4beaaa852b5f917
+environment_version: 58339ffafde4614abb7021482cc6604b
 
 cidr_networks:
-  container: $MGMT_CIDR
-  snet: $MGMT_CIDR
-  tunnel: $TUNNEL_CIDR
-  storage: $TUNNEL_CIDR
+  container: 192.168.21.0/24
+  snet: 192.168.21.0/24
+  tunnel: 192.168.22.0/24
+  storage: 192.168.22.0/24
 
 global_overrides:
-  internal_lb_vip_address: $MGMT_IP
-  external_lb_vip_address: $EXT_IP
+  internal_lb_vip_address: 192.168.21.1
+  external_lb_vip_address: 192.168.25.1
   lb_name: "lb"
   tunnel_bridge: "br-vmnet"
   management_bridge: "br-mgmt"
   provider_networks:
     - network:
+        container_bridge: "br-mgmt"
+        container_type: "veth"
+        container_interface: "eth1"
+        ip_from_q: "container"
+        type: "raw"
         group_binds:
           - all_containers
           - hosts
-        type: "raw"
-        container_bridge: "br-mgmt"
-        container_interface: "eth1"
-        ip_from_q: "container"
+        is_container_address: true
+        is_ssh_address: true
     - network:
-        group_binds:
-          - neutron_linuxbridge_agent
         container_bridge: "br-vmnet"
+        container_type: "veth"
         container_interface: "eth10"
+        ip_from_q: "tunnel"
         type: "vxlan"
         range: "1:1000"
         net_name: "vxlan"
-        ip_from_q: "tunnel"
-    - network:
         group_binds:
           - neutron_linuxbridge_agent
+    - network:
         container_bridge: "br-ext"
+        container_type: "veth"
         container_interface: "eth11"
         type: "flat"
         net_name: "extnet"
-    - network:
         group_binds:
           - neutron_linuxbridge_agent
+    - network:
         container_bridge: "br-ext"
+        container_type: "veth"
         container_interface: "eth11"
         type: "vlan"
         range: "1:1"
         net_name: "extnet"
+        group_binds:
+          - neutron_linuxbridge_agent
 
 infra_hosts:
   infra1:
@@ -171,8 +181,9 @@ haproxy_hosts:
   infra1:
     ip: $MGMT_IP
 EOF
-    cd /opt/os-ansible-deployment/rpc_deployment/
-    sed -i "s/^required_kernel:.*\$/required_kernel: $KERNEL/" inventory/group_vars/all.yml
+    cd /opt/os-ansible-deployment/playbooks/
+    sed -i "s/^openstack_host_required_kernel:.*\$/openstack_host_required_kernel: $KERNEL/" inventory/group_vars/all.yml
+    sed -i "s/pip_no_index:.*\$/pip_no_index: false/" roles/pip_lock_down/defaults/main.yml
 }
 
 run_playbook()
@@ -181,47 +192,44 @@ run_playbook()
     RETRIES=3
     VERBOSE=""
     RETRY=""
-    cd /opt/os-ansible-deployment/rpc_deployment
-    while ! ansible-playbook $VERBOSE -e @/etc/rpc_deploy/user_variables.yml playbooks/$1/$2.yml $RETRY ; do 
+    cd /opt/os-ansible-deployment/playbooks
+    while ! ansible-playbook $VERBOSE -e @/etc/openstack_deploy/user_secrets.yml -e @/etc/openstack_deploy/user_variables.yml $1.yml $RETRY ; do 
         if [ $ATTEMPT -ge $RETRIES ]; then
             exit 1
         fi
         ATTEMPT=$((ATTEMPT+1))
         sleep 10
         VERBOSE=-vvv
-        RETRY="--limit @/root/$2.retry"
+        RETRY="--limit @/root/$1.retry"
     done
 }
 
 do_playbooks()
 {
-    run_playbook setup host-setup
+    run_playbook setup-hosts
 
-    run_playbook infrastructure memcached-install
+    run_playbook memcached-install
+    #run_playbook repo-install
     if [[ $SKIP_GALERA == "" ]]; then
-        run_playbook infrastructure galera-install
+        run_playbook galera-install
     fi
-    run_playbook infrastructure rabbit-install
+    run_playbook rabbitmq-install
     if [[ $SKIP_LOGGING == "" ]]; then
-        run_playbook infrastructure rsyslog-install
-        run_playbook infrastructure elasticsearch-install
-        run_playbook infrastructure logstash-install
-        run_playbook infrastructure kibana-install
-        run_playbook infrastructure es2unix-install
-        run_playbook infrastructure rsyslog-config
+        run_playbook rsyslog-install
     fi
+    run_playbook utility-install
     if [[ $SKIP_HAPROXY == "" ]]; then
-        run_playbook infrastructure haproxy-install
+        run_playbook haproxy-install
     fi
 
-    run_playbook openstack openstack-setup
+    run_playbook setup-openstack
 }
 
 usage()
 {
     echo "Usage: install.sh [options] module ..."
     echo "Options:"
-    echo "  --branch(-b): RPC branch to install (default stable/icehouse)"
+    echo "  --branch(-b): RPC branch to install (default master)"
     echo "  --mgmt(-m):   management network interface, IP address and CIDR (e.g. eth3,192.168.22.1,192.168.22.0/24)"
     echo "  --tunnel(-t)  VM tunneling network interface, IP address and CIDR"
     echo "  --ext(-e)     external network interface, IP address and CIDR"
